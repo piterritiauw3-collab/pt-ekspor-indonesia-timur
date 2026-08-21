@@ -372,7 +372,13 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+/* ==== Supabase Auth config ==== */
+const SUPABASE_URL='https://uxeipdofwajpijpfjuue.supabase.co';
+const SUPABASE_ANON_KEY='sb_publishable_665JaACUSBkndaD-kUPE5Q_7GpHc_Py';
+const sbClient=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+
 const activities=[
  {no:'KEG-2026-010',name:'Patroli Ketertiban Umum',type:'Patroli',date:'19 Agu 2026',loc:'Kec. Sukamaju',pic:'R. Pratama',status:'Sedang berlangsung'},
  {no:'KEG-2026-009',name:'Penertiban PKL',type:'Penertiban',date:'18 Agu 2026',loc:'Pasar Utama',pic:'A. Nugraha',status:'Selesai'},
@@ -388,17 +394,26 @@ const personnel=[
  ['P-009','T. Firmansyah','Petugas','Bidang Penertiban','Aktif'],['P-010','L. Permata','Petugas','Bidang Pembinaan','Aktif']
 ];
 
-function getAccounts(){
- try{
-  const accounts=JSON.parse(localStorage.getItem('simanpol_accounts')||'[]');
-  return Array.isArray(accounts)?accounts:[];
- }catch(e){return []}
-}
-function saveAccounts(accounts){localStorage.setItem('simanpol_accounts',JSON.stringify(accounts))}
 function normalizeEmail(email){return String(email||'').trim().toLowerCase()}
 function isValidEmail(email){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)}
 
-function registerAccount(e){
+function showApp(name,role){
+ document.getElementById('loginScreen').style.display='none';document.getElementById('app').style.display='flex';
+ document.getElementById('userName').textContent=name||'Pengguna';document.getElementById('userRole').textContent=role||'-';
+}
+
+function mapSupabaseError(msg){
+ msg=String(msg||'');
+ if(/already registered|already exists|User already registered/i.test(msg))return'Email sudah terdaftar. Silakan login.';
+ if(/invalid login credentials/i.test(msg))return'Email atau password salah.';
+ if(/email not confirmed/i.test(msg))return'Email belum dikonfirmasi. Silakan cek email Anda untuk verifikasi.';
+ if(/password should be at least|password.*character/i.test(msg))return'Password minimal 6 karakter.';
+ if(/unable to validate email address|invalid email/i.test(msg))return'Format email tidak valid.';
+ if(/rate limit/i.test(msg))return'Terlalu banyak percobaan. Silakan coba lagi nanti.';
+ return msg||'Terjadi kesalahan. Silakan coba lagi.';
+}
+
+async function registerAccount(e){
  e.preventDefault();
  const name=document.getElementById('registerName').value.trim();
  const email=normalizeEmail(document.getElementById('registerEmail').value);
@@ -409,10 +424,14 @@ function registerAccount(e){
  if(!isValidEmail(email)){toast('Format email tidak valid.','danger');return}
  if(password.length<6){toast('Password minimal 6 karakter.','danger');return}
  if(password!==confirm){toast('Konfirmasi password tidak sama.','danger');return}
- const accounts=getAccounts();
- if(accounts.some(a=>a.email===email)){toast('Email sudah terdaftar. Silakan login.','warning');return}
- accounts.push({id:'USR-'+Date.now(),name,email,password,role,createdAt:new Date().toISOString()});
- saveAccounts(accounts);
+ const submitBtn=e.target.querySelector('button[type="submit"]');
+ if(submitBtn)submitBtn.disabled=true;
+ const{data,error}=await sbClient.auth.signUp({email,password,options:{data:{name,role}}});
+ if(submitBtn)submitBtn.disabled=false;
+ if(error){toast(mapSupabaseError(error.message),'danger');return}
+ if(data && data.user && data.user.identities && data.user.identities.length===0){
+  toast('Email sudah terdaftar. Silakan login.','warning');return;
+ }
  document.getElementById('registerModal').classList.remove('show');
  document.getElementById('loginEmail').value=email;
  document.getElementById('loginPassword').value='';
@@ -420,42 +439,44 @@ function registerAccount(e){
  document.getElementById('registerEmail').value='';
  document.getElementById('registerPassword').value='';
  document.getElementById('registerPasswordConfirm').value='';
- toast('Pendaftaran berhasil. Silakan login menggunakan email Anda.');
+ if(data && data.session){
+  showApp(name,role);
+  toast('Pendaftaran berhasil. Selamat datang, '+name+'!');
+ }else{
+  toast('Pendaftaran berhasil. Silakan cek email Anda untuk verifikasi, lalu login.');
+ }
 }
 
-function login(){
+async function login(){
  const email=normalizeEmail(document.getElementById('loginEmail').value);
  const password=document.getElementById('loginPassword').value;
  if(!isValidEmail(email)){toast('Masukkan email yang valid.','danger');return}
  if(!password){toast('Password wajib diisi.','danger');return}
- const accounts=getAccounts();
- if(accounts.length===0){toast('Belum ada akun. Silakan daftar terlebih dahulu.','warning');openModal('registerModal');return}
- const account=accounts.find(a=>a.email===email && a.password===password);
- if(!account){
-  const exists=accounts.some(a=>a.email===email);
-  toast(exists?'Password salah.':'Email belum terdaftar. Silakan daftar terlebih dahulu.','danger');
-  return;
- }
- document.getElementById('loginScreen').style.display='none';document.getElementById('app').style.display='flex';
- document.getElementById('userName').textContent=account.name;document.getElementById('userRole').textContent=account.role;
- localStorage.setItem('simanpol_session',JSON.stringify({email:account.email,name:account.name,role:account.role,loginAt:new Date().toISOString()}));
- toast('Selamat datang, '+account.name+'!');
+ const{data,error}=await sbClient.auth.signInWithPassword({email,password});
+ if(error){toast(mapSupabaseError(error.message),'danger');return}
+ const user=data.user;
+ const name=(user.user_metadata && user.user_metadata.name)||user.email;
+ const role=(user.user_metadata && user.user_metadata.role)||'-';
+ showApp(name,role);
+ toast('Selamat datang, '+name+'!');
 }
-function logout(){
- localStorage.removeItem('simanpol_session');
+
+async function logout(){
+ await sbClient.auth.signOut();
  document.getElementById('app').style.display='none';document.getElementById('loginScreen').style.display='grid';
  document.getElementById('loginPassword').value='';
 }
 
-function restoreSession(){
+async function restoreSession(){
  try{
-  const session=JSON.parse(localStorage.getItem('simanpol_session')||'null');
+  const{data}=await sbClient.auth.getSession();
+  const session=data && data.session;
   if(!session)return;
-  const account=getAccounts().find(a=>a.email===session.email);
-  if(!account){localStorage.removeItem('simanpol_session');return}
-  document.getElementById('loginScreen').style.display='none';document.getElementById('app').style.display='flex';
-  document.getElementById('userName').textContent=account.name;document.getElementById('userRole').textContent=account.role;
- }catch(e){localStorage.removeItem('simanpol_session')}
+  const user=session.user;
+  const name=(user.user_metadata && user.user_metadata.name)||user.email;
+  const role=(user.user_metadata && user.user_metadata.role)||'-';
+  showApp(name,role);
+ }catch(e){/* biarkan di layar login jika sesi tidak valid */}
 }
 
 function showPage(id,btn){
