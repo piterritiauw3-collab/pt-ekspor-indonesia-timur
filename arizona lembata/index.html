@@ -1054,15 +1054,34 @@
         (contoh: "35K", "8GB", dsb — samakan persis dengan label varian di produk).
         Untuk produk tanpa varian, kolom ini dikosongkan saja.
   ============================================================= */
-  const PRICE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQi-TtSwseVAQrO8p98_rN3lty47wVWQ_4FdZijS683FBvLrPIGbvqykntVuEzMtzGY9QeHVsYIl4go/pub?gid=842166054&single=true&output=csv"; // <-- tempel link "Publish to web" (CSV) dari Google Sheet di sini
+  const PRICE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/10LpdTvOAzN3jpM2-0jKxCyf3IOsFQJEft62LQ3HSsrA/gviz/tq?tqx=out:csv&gid=842166054"; // <-- tempel link "Publish to web" (CSV) dari Google Sheet di sini
 
   function parseCSV(text){
     const lines = text.trim().split(/\r?\n/);
-    const headers = lines[0].split(",").map(h=>h.trim().toLowerCase());
+    function splitLine(line){
+      // pisahkan per koma, tapi tetap utuh jika koma berada di dalam tanda kutip
+      const cols = [];
+      let cur = "";
+      let inQuotes = false;
+      for(let i=0;i<line.length;i++){
+        const ch = line[i];
+        if(ch === '"'){
+          if(inQuotes && line[i+1] === '"'){ cur += '"'; i++; }
+          else inQuotes = !inQuotes;
+        } else if(ch === "," && !inQuotes){
+          cols.push(cur); cur = "";
+        } else {
+          cur += ch;
+        }
+      }
+      cols.push(cur);
+      return cols.map(c=> c.trim());
+    }
+    const headers = splitLine(lines[0]).map(h=> h.toLowerCase());
     return lines.slice(1).map(line=>{
-      const cols = line.split(",");
+      const cols = splitLine(line);
       const row = {};
-      headers.forEach((h,i)=> row[h] = (cols[i]!==undefined ? cols[i].trim() : ""));
+      headers.forEach((h,i)=> row[h] = (cols[i]!==undefined ? cols[i] : ""));
       return row;
     });
   }
