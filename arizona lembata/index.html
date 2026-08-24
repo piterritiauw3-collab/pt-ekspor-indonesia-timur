@@ -1033,12 +1033,69 @@
 <div class="toast" id="toast"><span class="dot"></span><span id="toastMsg">Berhasil</span></div>
 
 <script>
-(function(){
+(async function(){
   "use strict";
 
   /* ================= CONFIG ================= */
   const STORE_NAME = "Arizona Cell Lembata";
   const WA_NUMBER = "6281296651191";
+
+  /* ================= HARGA DARI GOOGLE SHEET =================
+     Cara pakai:
+     1. Buat Google Sheet baru, isi kolom: id, nama_produk, tipe_varian, harga, harga_coret, stok
+        (gunakan file price_template.csv yang sudah disediakan sebagai contoh awal —
+        tinggal Import ke Google Sheets: File > Import > Upload)
+     2. Klik File > Share > Publish to web
+     3. Pilih sheet yang sesuai, pilih format "Comma-separated values (.csv)", klik Publish
+     4. Salin link yang muncul, tempel di bawah ini menggantikan tanda kutip kosong ""
+     5. Setiap kali harga di kolom "harga" / "harga_coret" / "stok" diubah di Google Sheet,
+        SEMUA pengunjung website akan otomatis melihat harga terbaru (cukup refresh halaman).
+     6. Kolom "tipe_varian" HANYA diisi untuk produk yang punya banyak pilihan tipe/varian
+        (contoh: "35K", "8GB", dsb — samakan persis dengan label varian di produk).
+        Untuk produk tanpa varian, kolom ini dikosongkan saja.
+  ============================================================= */
+  const PRICE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQi-TtSwseVAQrO8p98_rN3lty47wVWQ_4FdZijS683FBvLrPIGbvqykntVuEzMtzGY9QeHVsYIl4go/pub?gid=842166054&single=true&output=csv"; // <-- tempel link "Publish to web" (CSV) dari Google Sheet di sini
+
+  function parseCSV(text){
+    const lines = text.trim().split(/\r?\n/);
+    const headers = lines[0].split(",").map(h=>h.trim().toLowerCase());
+    return lines.slice(1).map(line=>{
+      const cols = line.split(",");
+      const row = {};
+      headers.forEach((h,i)=> row[h] = (cols[i]!==undefined ? cols[i].trim() : ""));
+      return row;
+    });
+  }
+
+  async function loadPriceOverrides(){
+    if(!PRICE_SHEET_CSV_URL) return; // belum diatur, pakai harga bawaan di kode
+    try{
+      const res = await fetch(PRICE_SHEET_CSV_URL, {cache:"no-store"});
+      if(!res.ok) throw new Error("Gagal mengambil data harga");
+      const text = await res.text();
+      const rows = parseCSV(text);
+      rows.forEach(row=>{
+        const id = parseInt(row.id, 10);
+        const product = PRODUCTS.find(p=> p.id === id);
+        if(!product) return;
+        const variantLabel = (row.tipe_varian || "").trim();
+        const harga = row.harga !== "" && row.harga !== undefined ? parseInt(row.harga, 10) : null;
+        const hargaCoret = row.harga_coret !== "" && row.harga_coret !== undefined ? parseInt(row.harga_coret, 10) : null;
+        const stok = row.stok !== "" && row.stok !== undefined ? parseInt(row.stok, 10) : null;
+
+        if(variantLabel && product.variants){
+          const v = product.variants.find(v=> v.label === variantLabel);
+          if(v) v.price = isNaN(harga) ? null : harga;
+        } else if(!product.variants){
+          if(!isNaN(harga)) product.price = harga;
+          if(hargaCoret !== null) product.oldPrice = isNaN(hargaCoret) ? null : hargaCoret;
+        }
+        if(stok !== null && !isNaN(stok)) product.stock = stok;
+      });
+    }catch(err){
+      console.warn("Gagal memuat harga dari Google Sheet, memakai harga bawaan.", err);
+    }
+  }
 
   function waLink(text){
     return "https://wa.me/" + WA_NUMBER + "?text=" + encodeURIComponent(text);
@@ -2048,6 +2105,7 @@ Terima kasih.`;
   }
 
   /* ================= INIT ================= */
+  await loadPriceOverrides();
   renderProducts();
   renderBestSellers();
   renderAccessories();
