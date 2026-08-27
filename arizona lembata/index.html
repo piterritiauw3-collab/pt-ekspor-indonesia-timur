@@ -438,6 +438,16 @@
     transition:border-color .2s;
   }
   .form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;border-color:var(--teal);}
+  .bank-info-box{
+    margin-top:10px;padding:12px 14px;border-radius:12px;
+    background:var(--charcoal);color:var(--paper);font-size:13px;line-height:1.6;
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+  }
+  .bank-info-box .bi-text b{color:var(--teal);}
+  .bank-info-box .bi-copy{
+    background:var(--teal);color:var(--ink);font-size:11.5px;font-weight:700;
+    padding:6px 12px;border-radius:100px;white-space:nowrap;flex-shrink:0;
+  }
   .checkout-summary{background:var(--paper);border-radius:12px;padding:16px;margin-bottom:18px;font-size:13.5px;}
   .checkout-summary .row{display:flex;justify-content:space-between;margin-bottom:6px;color:#54565e;}
   .checkout-summary .total{font-weight:700;font-size:16px;color:var(--ink);border-top:1px solid var(--gray-line);padding-top:10px;margin-top:8px;}
@@ -838,6 +848,21 @@
         <option>QRIS</option>
       </select>
     </div>
+    <div class="form-group" id="ckBankGroup">
+      <label>Pilih Bank Tujuan Transfer</label>
+      <select id="ckBank">
+        <option value="BCA">BCA</option>
+        <option value="BRI">BRI</option>
+        <option value="BNI">BNI</option>
+        <option value="Mandiri">Mandiri</option>
+        <option value="BSI">BSI</option>
+        <option value="BTN">BTN</option>
+        <option value="CIMB Niaga">CIMB Niaga</option>
+        <option value="Bank NTT">Bank NTT</option>
+        <option value="Lainnya">Bank Lainnya (sebutkan di catatan)</option>
+      </select>
+      <div id="ckBankInfo" class="bank-info-box"></div>
+    </div>
     <div class="form-group">
       <label>Catatan (opsional)</label>
       <textarea id="ckNote" rows="2" placeholder="Contoh: warna hitam, kirim sore hari"></textarea>
@@ -879,6 +904,19 @@
   /* ================= CONFIG ================= */
   const STORE_NAME = "Arizona Cell Lembata";
   const WA_NUMBER = "6281296651191";
+
+  /* Ganti nomor rekening di bawah ini sesuai rekening toko yang sebenarnya */
+  const BANK_ACCOUNTS = {
+    "BCA": {no:"1234567890", name:"Arizona Cell Lembata"},
+    "BRI": {no:"468201014859534", name:"Nur Indah Fibriani"},
+    "BNI": {no:"1234567890", name:"Arizona Cell Lembata"},
+    "Mandiri": {no:"1234567890", name:"Arizona Cell Lembata"},
+    "BSI": {no:"1234567890", name:"Arizona Cell Lembata"},
+    "BTN": {no:"1234567890", name:"Arizona Cell Lembata"},
+    "CIMB Niaga": {no:"1234567890", name:"Arizona Cell Lembata"},
+    "Bank NTT": {no:"1234567890", name:"Arizona Cell Lembata"},
+    "Lainnya": null
+  };
 
   function waLink(text){
     return "https://wa.me/" + WA_NUMBER + "?text=" + encodeURIComponent(text);
@@ -1444,6 +1482,39 @@
     checkoutModal.classList.remove("open");
     overlay.classList.remove("open");
   }
+  const ckPaymentEl = document.getElementById("ckPayment");
+  const ckBankGroup = document.getElementById("ckBankGroup");
+  const ckBankEl = document.getElementById("ckBank");
+  const ckBankInfoEl = document.getElementById("ckBankInfo");
+
+  function renderBankInfo(){
+    const acc = BANK_ACCOUNTS[ckBankEl.value];
+    if(!acc){
+      ckBankInfoEl.innerHTML = `<div class="bi-text">Silakan tulis nama bank tujuan di kolom catatan.</div>`;
+      return;
+    }
+    ckBankInfoEl.innerHTML = `
+      <div class="bi-text">${ckBankEl.value} a.n <b>${acc.name}</b><br>No. Rek: <b>${acc.no}</b></div>
+      <button type="button" class="bi-copy" id="copyBankNo">Salin</button>`;
+    const copyBtn = document.getElementById("copyBankNo");
+    if(copyBtn){
+      copyBtn.addEventListener("click", ()=>{
+        navigator.clipboard.writeText(acc.no).then(()=>{
+          showToast("Nomor rekening disalin");
+        }).catch(()=>{
+          showToast("Gagal menyalin, salin manual: " + acc.no);
+        });
+      });
+    }
+  }
+  function toggleBankGroup(){
+    ckBankGroup.style.display = (ckPaymentEl.value === "Transfer Bank") ? "block" : "none";
+  }
+  ckPaymentEl.addEventListener("change", toggleBankGroup);
+  ckBankEl.addEventListener("change", renderBankInfo);
+  toggleBankGroup();
+  renderBankInfo();
+
   document.getElementById("closeCheckout").addEventListener("click", closeCheckoutFn);
   document.getElementById("toCheckoutBtn").addEventListener("click", ()=>{
     if(state.cart.length === 0){ showToast("Keranjang masih kosong"); return; }
@@ -1474,7 +1545,9 @@
     const phone = document.getElementById("ckPhone").value.trim();
     const address = document.getElementById("ckAddress").value.trim();
     const payment = document.getElementById("ckPayment").value;
+    const bank = document.getElementById("ckBank").value;
     const note = document.getElementById("ckNote").value.trim();
+    const paymentLabel = (payment === "Transfer Bank") ? `${payment} - ${bank}` : payment;
 
     if(!name || !phone || !address){
       showToast("Mohon lengkapi nama, nomor WA, dan alamat");
@@ -1500,14 +1573,14 @@ Produk:
 ${productLines}
 Total: ${rupiah(total)}
 Alamat: ${address}
-Metode pembayaran: ${payment}
+Metode pembayaran: ${paymentLabel}
 Catatan: ${note || "-"}
 
 Terima kasih.`;
 
     // simpan pesanan sementara
     const orders = JSON.parse(localStorage.getItem("sc_orders") || "[]");
-    orders.push({name, phone, address, payment, note, items: items.map(i=>({id:i.p.id, variantIdx:i.variantIdx, qty:i.qty})), total, date: new Date().toISOString()});
+    orders.push({name, phone, address, payment: paymentLabel, note, items: items.map(i=>({id:i.p.id, variantIdx:i.variantIdx, qty:i.qty})), total, date: new Date().toISOString()});
     localStorage.setItem("sc_orders", JSON.stringify(orders));
 
     // kosongkan cart jika checkout dari cart
