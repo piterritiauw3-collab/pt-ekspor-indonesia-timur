@@ -82,7 +82,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}
         <small>© 2026 Satuan Polisi Pamong Praja. All rights reserved.</small>
       </div>
 
-      <div class="login-note">Anda harus mendaftar terlebih dahulu sebelum dapat masuk. Akun tersimpan di browser ini.</div>
+      <div class="login-note">Akun dan data tersimpan di Supabase. Buka aplikasi melalui alamat HTTPS yang sama agar sesi login tetap konsisten.</div>
     </div>
   </section>
 </div>
@@ -377,22 +377,12 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}
 /* ==== Supabase Auth config ==== */
 const SUPABASE_URL='https://uxeipdofwajpijpfjuue.supabase.co';
 const SUPABASE_ANON_KEY='sb_publishable_665JaACUSBkndaD-kUPE5Q_7GpHc_Py';
-const sbClient=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+const sbClient=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{
+  auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}
+});
 
-const activities=[
- {no:'KEG-2026-010',name:'Patroli Ketertiban Umum',type:'Patroli',date:'19 Agu 2026',loc:'Kec. Sukamaju',pic:'R. Pratama',status:'Sedang berlangsung'},
- {no:'KEG-2026-009',name:'Penertiban PKL',type:'Penertiban',date:'18 Agu 2026',loc:'Pasar Utama',pic:'A. Nugraha',status:'Selesai'},
- {no:'KEG-2026-008',name:'Sosialisasi Perda',type:'Sosialisasi',date:'17 Agu 2026',loc:'Kel. Mekarsari',pic:'D. Wijaya',status:'Direncanakan'},
- {no:'KEG-2026-007',name:'Pengamanan Kegiatan',type:'Pengamanan',date:'16 Agu 2026',loc:'Alun-alun',pic:'F. Ramadhan',status:'Selesai'},
- {no:'KEG-2026-006',name:'Monitoring Ketertiban',type:'Monitoring',date:'15 Agu 2026',loc:'Kecamatan Harapan',pic:'R. Pratama',status:'Selesai'}
-];
-const personnel=[
- ['P-001','R. Pratama','Koordinator','Bidang Operasional','Aktif'],['P-002','A. Nugraha','Petugas','Bidang Penertiban','Aktif'],
- ['P-003','D. Wijaya','Petugas','Bidang Pembinaan','Aktif'],['P-004','F. Ramadhan','Petugas','Bidang Operasional','Aktif'],
- ['P-005','S. Hidayat','Petugas','Bidang Penertiban','Aktif'],['P-006','M. Kurnia','Petugas','Bidang Pengawasan','Aktif'],
- ['P-007','N. Sari','Administrasi','Sekretariat','Aktif'],['P-008','B. Saputra','Petugas','Bidang Operasional','Aktif'],
- ['P-009','T. Firmansyah','Petugas','Bidang Penertiban','Aktif'],['P-010','L. Permata','Petugas','Bidang Pembinaan','Aktif']
-];
+const activities=[];
+const personnel=[];
 
 function normalizeEmail(email){return String(email||'').trim().toLowerCase()}
 function isValidEmail(email){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)}
@@ -404,6 +394,7 @@ function showApp(name,role){
  if(window.loadAllCrud)window.loadAllCrud();
  if(window.loadActivitiesFromDB)window.loadActivitiesFromDB();
  if(window.loadTemplatesFromDB)window.loadTemplatesFromDB();
+ if(window.startRealtimeSync)window.startRealtimeSync();
 }
 
 function mapSupabaseError(msg){
@@ -466,8 +457,11 @@ async function login(){
 }
 
 async function logout(){
- await sbClient.auth.signOut();
- document.getElementById('app').style.display='none';document.getElementById('loginScreen').style.display='grid';
+ if(window.stopRealtimeSync)window.stopRealtimeSync();
+ const {error}=await sbClient.auth.signOut();
+ if(error){toast('Gagal keluar: '+error.message);return;}
+ document.getElementById('app').style.display='none';
+ document.getElementById('loginScreen').style.display='grid';
  document.getElementById('loginPassword').value='';
 }
 
@@ -503,7 +497,8 @@ let templatesCache=[];
 function getTemplates(){ return templatesCache; }
 async function loadTemplatesFromDB(){
   const {data,error}=await sbClient.from('templates').select('*').order('updated_at',{ascending:false});
-  if(!error && Array.isArray(data))templatesCache=data;
+  if(error){console.error('Supabase: gagal memuat tabel templates',error);return;}
+  if(Array.isArray(data))templatesCache=data;
   renderTemplates();
 }
 function renderTemplates(){
@@ -588,9 +583,10 @@ function globalSearch(q){if(!q)return;const found=activities.find(a=>(a.name+' '
 function printDoc(title){const w=window.open('','_blank');w.document.write(`<html><head><title>${title}</title><style>body{font-family:Arial;padding:40px}h1{text-align:center}p{line-height:1.7}.line{border-bottom:1px solid #222;margin:20px 0}</style></head><body><h1>${title}</h1><div class="line"></div><p>Dokumen contoh SI-MANPOL PP.</p><p>Dokumen ini merupakan preview frontend dan dapat dikembangkan menjadi PDF resmi melalui backend.</p><br><p>Tempat, tanggal: __________________</p><p>Penanggung Jawab: __________________</p><script>window.print()<\/script></body></html>`);w.document.close()}
 document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('show')}));
 document.getElementById('loginPassword')?.addEventListener('keydown',e=>{if(e.key==='Enter')login()});
+if(window.location.protocol==='file:'){
+  console.warn('SI-MANPOL PP dibuka dari file lokal. Host aplikasi pada URL HTTPS yang tetap agar penyimpanan sesi dan penggunaan bersama lebih andal.');
+}
 restoreSession();
-renderActivities();renderPersonnel();
-loadTemplatesFromDB();
 
 /* =========================================================
    SI-MANPOL PP - CRUD ENHANCEMENT
@@ -601,54 +597,8 @@ loadTemplatesFromDB();
 (function(){
   const KEY='simanpol_crud_v2';
   const defaults={
-    personnel:[
-      {id:'P-001',name:'R. Pratama',position:'Koordinator',unit:'Bidang Operasional',status:'Aktif'},
-      {id:'P-002',name:'A. Nugraha',position:'Petugas',unit:'Bidang Penertiban',status:'Aktif'},
-      {id:'P-003',name:'D. Wijaya',position:'Petugas',unit:'Bidang Pembinaan',status:'Aktif'},
-      {id:'P-004',name:'F. Ramadhan',position:'Petugas',unit:'Bidang Operasional',status:'Aktif'}
-    ],
-    assignments:[
-      {person:'R. Pratama',activity:'Patroli Ketertiban Umum',role:'Koordinator',date:'2026-08-19',status:'Aktif'},
-      {person:'A. Nugraha',activity:'Penertiban PKL',role:'Petugas',date:'2026-08-18',status:'Selesai'},
-      {person:'D. Wijaya',activity:'Sosialisasi Perda',role:'Petugas',date:'2026-08-17',status:'Menunggu'}
-    ],
-    spt:[
-      {no:'800/001/SPT/2026',activity:'Patroli Ketertiban Umum',date:'2026-08-19',location:'Sukamaju',pic:'R. Pratama',status:'Aktif'},
-      {no:'800/002/SPT/2026',activity:'Penertiban PKL',date:'2026-08-18',location:'Pasar Utama',pic:'A. Nugraha',status:'Arsip'}
-    ],
-    reports:[
-      {no:'LAP-2026-010',activity:'Patroli Ketertiban Umum',date:'2026-08-19',person:'R. Pratama',status:'Menunggu persetujuan',result:'',finding:'',action:'',note:''},
-      {no:'LAP-2026-009',activity:'Penertiban PKL',date:'2026-08-18',person:'A. Nugraha',status:'Disetujui',result:'Kegiatan selesai',finding:'',action:'Penertiban',note:''}
-    ],
-    violations:[
-      {date:'2026-08-19',type:'PKL tanpa izin',location:'Pasar Utama',action:'Pembinaan',status:'Tindak lanjut',note:''},
-      {date:'2026-08-18',type:'Gangguan ketertiban umum',location:'Jl. Merdeka',action:'Penertiban',status:'Selesai',note:''},
-      {date:'2026-08-17',type:'Reklame tidak sesuai',location:'Kel. Mekarsari',action:'Peringatan',status:'Proses',note:''}
-    ],
-    followups:[
-      {finding:'PKL tanpa izin',pic:'A. Nugraha',agency:'Kecamatan',deadline:'2026-08-20',status:'Dalam proses',note:'Menunggu verifikasi'},
-      {finding:'Reklame tidak sesuai',pic:'D. Wijaya',agency:'Satpol PP',deadline:'2026-08-16',status:'Terlambat',note:'Segera ditindaklanjuti'},
-      {finding:'Gangguan ketertiban',pic:'F. Ramadhan',agency:'Kelurahan',deadline:'2026-08-15',status:'Selesai',note:'Bukti tersedia'}
-    ],
-    vehicles:[
-      {no:'D 9012 PP',type:'Mobil Patroli',brand:'Contoh Motor Group',year:'2024',condition:'Baik',status:'Tersedia',user:'Operasional'},
-      {no:'D 9013 PP',type:'Pickup',brand:'Contoh Auto',year:'2023',condition:'Baik',status:'Dipakai',user:'Tim 2'}
-    ],
-    equipment:[
-      {name:'Radio Komunikasi',qty:'18',condition:'Baik',location:'Gudang Operasional',status:'Tersedia'},
-      {name:'Rompi Petugas',qty:'42',condition:'Baik',location:'Gudang Utama',status:'Tersedia'}
-    ],
-    users:[
-      {name:'Administrator',email:'admin@simanpol.local',role:'Admin',status:'Aktif'},
-      {name:'Pimpinan',email:'pimpinan@simanpol.local',role:'Pimpinan',status:'Aktif'},
-      {name:'Operator Bidang',email:'operator@simanpol.local',role:'Operator/Admin Bidang',status:'Aktif'},
-      {name:'Petugas Lapangan',email:'petugas@simanpol.local',role:'Petugas Lapangan',status:'Aktif'}
-    ],
-    archives:[
-      {no:'800/001/SPT/2026',name:'Surat Perintah Tugas',type:'SPT',date:'2026-08-19',activity:'Patroli Ketertiban Umum'},
-      {no:'LAP-2026-009',name:'Laporan Kegiatan Penertiban',type:'Laporan',date:'2026-08-18',activity:'Penertiban PKL'}
-    ],
-    photos:[]
+    personnel:[], assignments:[], spt:[], reports:[], violations:[], followups:[],
+    vehicles:[], equipment:[], users:[], archives:[], photos:[]
   };
   let db={};
   Object.keys(defaults).forEach(k=>{db[k]=defaults[k].slice();});
@@ -671,8 +621,16 @@ loadTemplatesFromDB();
     for(const t of Object.values(TYPES)){
       try{
         const {data,error}=await sbClient.from(t.table).select('*').order('created_at',{ascending:false});
-        if(!error && Array.isArray(data))db[t.key]=data;
-      }catch(e){/* biarkan data default/lama jika request gagal (mis. offline) */}
+        if(error){
+          console.error('Supabase: gagal memuat tabel '+t.table, error);
+          db[t.key]=[];
+        }else if(Array.isArray(data)){
+          db[t.key]=data;
+        }
+      }catch(e){
+        console.error('Supabase: gagal memuat tabel '+t.table, e);
+        db[t.key]=[];
+      }
     }
     renderAllCrud();
   }
@@ -770,7 +728,11 @@ loadTemplatesFromDB();
     };openModal('photoCrudModal');
   }
   function fileToDataURL(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file);});}
-  function renderPhotos(){const g=document.querySelector('#dokumentasi .gallery');if(!g)return;const demo=[...g.querySelectorAll('.photo')];if(!db.photos.length){demo.forEach(x=>x.style.display='');return;}g.innerHTML=db.photos.map((p,i)=>`<div class="photo" style="background-image:${p.image?`url('${p.image}')`:'none'};background-size:cover;background-position:center"><div style="background:rgba(0,0,0,.55);padding:8px;border-radius:8px;color:white">${esc(p.title)}<br>${date(p.date)}<br>${esc(p.location||'')}<br><button class="btn" onclick="openCrudModal('photo',${i})">Edit</button> <button class="btn danger" onclick="deleteCrud('photo',${i})">Hapus</button></div></div>`).join('');}
+  function renderPhotos(){
+    const g=document.querySelector('#dokumentasi .gallery');if(!g)return;
+    if(!db.photos.length){g.innerHTML='<div class="muted" style="padding:18px">Belum ada dokumentasi yang tersimpan.</div>';return;}
+    g.innerHTML=db.photos.map((p,i)=>`<div class="photo" style="background-image:${p.image?`url('${p.image}')`:'none'};background-size:cover;background-position:center"><div style="background:rgba(0,0,0,.55);padding:8px;border-radius:8px;color:white">${esc(p.title)}<br>${date(p.date)}<br>${esc(p.location||'')}<br><button class="btn" onclick="openCrudModal('photo',${i})">Edit</button> <button class="btn danger" onclick="deleteCrud('photo',${i})">Hapus</button></div></div>`).join('');
+  }
   // Make the documentation add button use the real CRUD modal.
   document.querySelectorAll('[onclick="openModal(\'photoModal\')"]').forEach(b=>b.setAttribute('onclick','openCrudModal(\'photo\')'));
   // Make the SPT/report add buttons use dynamic CRUD forms, so their rows can be edited/deleted too.
@@ -809,17 +771,39 @@ loadTemplatesFromDB();
   // [DIUBAH] Muat data kegiatan dari tabel Supabase 'activities'.
   async function loadActivitiesFromDB(){
     const {data,error}=await sbClient.from('activities').select('*').order('created_at',{ascending:false});
-    if(!error && Array.isArray(data) && data.length){activities.splice(0,activities.length,...data);renderActivitiesEnhanced();}
+    if(error){console.error('Supabase: gagal memuat tabel activities',error);return;}
+    if(Array.isArray(data)){activities.splice(0,activities.length,...data);renderActivitiesEnhanced();}
   }
   // Replace the original personnel renderer so it no longer overwrites CRUD actions.
   window.renderPersonnel=function(){renderAllCrud();};
   window.renderActivities=renderActivitiesEnhanced;
   window.openCrudModal=openCrudModal;window.deleteCrud=deleteCrud;window.renderAllCrud=renderAllCrud;
   window.loadAllCrud=loadAllCrud;window.loadActivitiesFromDB=loadActivitiesFromDB;
-  // Initial render (tampilkan data contoh dahulu, lalu diganti data asli dari Supabase).
+  let liveSyncChannel=null;
+  const realtimeTables=['activities','templates','personnel','assignments','vehicles','equipment','app_users','violations','followups','archives','spt','reports','photos'];
+  window.startRealtimeSync=function(){
+    if(liveSyncChannel)return;
+    let channel=sbClient.channel('simanpol-shared-database');
+    realtimeTables.forEach(table=>{
+      channel=channel.on('postgres_changes',{event:'*',schema:'public',table},()=>{
+        clearTimeout(window._simanpolRefreshTimer);
+        window._simanpolRefreshTimer=setTimeout(()=>{
+          if(window.loadAllCrud)window.loadAllCrud();
+          if(window.loadActivitiesFromDB)window.loadActivitiesFromDB();
+          if(window.loadTemplatesFromDB)window.loadTemplatesFromDB();
+        },250);
+      });
+    });
+    liveSyncChannel=channel.subscribe(status=>{
+      if(status==='CHANNEL_ERROR'||status==='TIMED_OUT')console.warn('Supabase Realtime status:',status);
+    });
+  };
+  window.stopRealtimeSync=function(){
+    if(liveSyncChannel){sbClient.removeChannel(liveSyncChannel);liveSyncChannel=null;}
+    clearTimeout(window._simanpolRefreshTimer);
+  };
+  // UI mulai kosong dan hanya mengambil data setelah sesi pengguna terautentikasi.
   renderActivitiesEnhanced();renderAllCrud();
-  loadActivitiesFromDB();
-  loadAllCrud();
 })();
 </script>
 </body>
